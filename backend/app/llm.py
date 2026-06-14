@@ -72,16 +72,43 @@ def parse_call(
 
 
 def _strip_to_json(text: str) -> str:
+    """Extract the first complete top-level JSON object, ignoring any prose the model
+    appends after it.
+
+    A naive first-`{` / last-`}` slice breaks whenever the model emits trailing text that
+    contains a brace — pydantic then rejects it with "Invalid JSON: trailing characters".
+    Brace-counting (string- and escape-aware) returns exactly the first object instead.
+    """
     text = text.strip()
     if text.startswith("```"):
         text = re.sub(r"^```[a-zA-Z]*\n", "", text)
         if text.endswith("```"):
             text = text[:-3]
     start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end > start:
-        return text[start : end + 1]
-    return text
+    if start == -1:
+        return text
+    depth = 0
+    in_str = False
+    escaped = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return text[start:]  # unbalanced (e.g. truncated output) — let validation surface it
 
 
 def _response_text(response: Any) -> str:
