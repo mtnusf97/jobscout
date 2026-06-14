@@ -120,6 +120,26 @@ def packet_letter(profile_id: str, job_id: str, db: Session = Depends(get_db)):
     return _file_response(packet.letter_pdf)
 
 
+@router.post("/jobs/{job_id}/packet/telegram", response_model=dict)
+def send_packet_telegram(profile_id: str, job_id: str, db: Session = Depends(get_db)):
+    """Manually push this job's latest packet (card + PDFs) to the linked Telegram chat."""
+    _job_or_404(db, profile_id, job_id)
+    packet = tailoring.latest_packet(db, job_id)
+    if packet is None or packet.status == "failed":
+        raise HTTPException(status_code=404, detail="No ready packet to send — tailor this job first.")
+    from ..telegram import client, delivery
+
+    try:
+        sent = delivery.deliver_packet(db, packet, force=True)
+    except client.TgError as exc:
+        raise HTTPException(status_code=502, detail=f"Telegram send failed: {exc}")
+    if not sent:
+        raise HTTPException(
+            status_code=409, detail="Telegram isn't connected — link a bot in Settings first."
+        )
+    return {"sent": True}
+
+
 @router.post("/jobs/{job_id}/action", response_model=dict)
 def job_action(profile_id: str, job_id: str, body: ActionIn, db: Session = Depends(get_db)):
     job = _job_or_404(db, profile_id, job_id)

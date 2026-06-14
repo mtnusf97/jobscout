@@ -6,6 +6,7 @@ import {
   FileText,
   RefreshCw,
   Scissors,
+  Send,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -68,6 +69,8 @@ export default function JobsPage() {
   const [busy, setBusy] = useState(false);
   const [sort, setSort] = useState<"score" | "new">("score");
   const [actionError, setActionError] = useState<string | null>(null);
+  const [sendingId, setSendingId] = useState<string | null>(null);
+  const [sentIds, setSentIds] = useState<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
     setBusy(true);
@@ -113,6 +116,19 @@ export default function JobsPage() {
       : "";
     if (notes === undefined) return; // cancelled
     void act(() => api.post(`/profiles/${pid}/jobs/${job.id}/tailor`, { notes }));
+  }
+
+  async function sendTelegram(job: JobItem) {
+    setActionError(null);
+    setSendingId(job.id);
+    try {
+      await api.post(`/profiles/${pid}/jobs/${job.id}/packet/telegram`);
+      setSentIds((prev) => new Set(prev).add(job.id));
+    } catch (e) {
+      setActionError((e as Error).message);
+    } finally {
+      setSendingId(null);
+    }
   }
 
   return (
@@ -264,6 +280,19 @@ export default function JobsPage() {
                               ) : (
                                 <Badge tone="amber">{job.packet.audit_flags} audit flag(s)</Badge>
                               )}
+                              <Button
+                                variant="outline"
+                                disabled={sendingId === job.id}
+                                title="Send this packet to your Telegram"
+                                onClick={() => void sendTelegram(job)}
+                              >
+                                {sendingId === job.id ? (
+                                  <Spinner className="h-4 w-4" />
+                                ) : (
+                                  <Send className="h-4 w-4" />
+                                )}
+                                {sentIds.has(job.id) ? "Sent ✓" : "Send to Telegram"}
+                              </Button>
                             </>
                           )}
                           {job.packet?.status === "failed" && (

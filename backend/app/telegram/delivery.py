@@ -75,13 +75,19 @@ def _buttons(job: models.Job) -> dict:
     return {"inline_keyboard": rows}
 
 
-def deliver_packet(db, packet: models.Packet) -> bool:
-    """Send one packet card + documents. Best-effort; returns True when sent."""
+def deliver_packet(db, packet: models.Packet, force: bool = False) -> bool:
+    """Send one packet card + documents. Best-effort; returns True when sent.
+
+    Skips already-delivered packets so the post-run auto-send doesn't duplicate; pass
+    force=True for an explicit manual re-send from the review queue.
+    """
     job = db.get(models.Job, packet.job_id)
     if job is None:
         return False
     bot = _linked_bot(db, job.profile_id)
-    if bot is None or packet.delivered_at is not None or packet.status == "failed":
+    if bot is None or packet.status == "failed":
+        return False
+    if packet.delivered_at is not None and not force:
         return False
     token = decrypt(bot.bot_token_enc)
     message = client.send_message(token, bot.chat_id, _card_text(job, packet), _buttons(job))
