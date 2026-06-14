@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Badge, Button, Card, CardBody, CardHeader, CardTitle, Input, Spinner } from "../components/ui";
+import { Badge, Button, Card, CardBody, CardHeader, CardTitle, Input, Select, Spinner } from "../components/ui";
 import {
   api,
   ApiError,
@@ -31,6 +31,15 @@ import {
   type RunOut,
   type TelegramState,
 } from "../lib/api";
+
+// Keep in sync with ALLOWED_MODELS in backend/app/llm.py
+const MODEL_OPTIONS = [
+  { value: "claude-haiku-4-5", label: "Haiku 4.5 — cheapest" },
+  { value: "claude-sonnet-4-6", label: "Sonnet 4.6 — balanced" },
+  { value: "claude-opus-4-8", label: "Opus 4.8 — best quality" },
+] as const;
+const DEFAULT_MODEL_SCORE = "claude-haiku-4-5";
+const DEFAULT_MODEL_TAILOR = "claude-sonnet-4-6";
 
 function SourceChips({
   ids,
@@ -114,6 +123,8 @@ export default function ProfileDetail() {
   const [schedTime, setSchedTime] = useState("08:00");
   const [capScore, setCapScore] = useState(80);
   const [capTailor, setCapTailor] = useState(5);
+  const [modelScore, setModelScore] = useState<string>(DEFAULT_MODEL_SCORE);
+  const [modelTailor, setModelTailor] = useState<string>(DEFAULT_MODEL_TAILOR);
   const [schedLoaded, setSchedLoaded] = useState(false);
   const [schedMsg, setSchedMsg] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -169,10 +180,16 @@ export default function ProfileDetail() {
       score_per_run?: number;
       tailor_per_run?: number;
     };
+    const modelsSel = (profile.settings.models ?? {}) as {
+      scoring?: string;
+      tailoring?: string;
+    };
     setSchedEnabled(Boolean(schedule.enabled));
     setSchedTime(schedule.time ?? "08:00");
     setCapScore(caps.score_per_run ?? 80);
     setCapTailor(caps.tailor_per_run ?? 5);
+    setModelScore(modelsSel.scoring ?? DEFAULT_MODEL_SCORE);
+    setModelTailor(modelsSel.tailoring ?? DEFAULT_MODEL_TAILOR);
     setSchedLoaded(true);
   }, [profile, schedLoaded]);
 
@@ -186,6 +203,7 @@ export default function ProfileDetail() {
           ...profile.settings,
           schedule: { ...previous, enabled: schedEnabled, time: schedTime },
           caps: { score_per_run: capScore, tailor_per_run: capTailor },
+          models: { scoring: modelScore, tailoring: modelTailor },
         },
       }),
     );
@@ -1034,14 +1052,45 @@ export default function ProfileDetail() {
                 onChange={(e) => setCapTailor(Number(e.target.value) || 5)}
               />
             </label>
+            <label className="text-sm text-zinc-700">
+              <span className="mb-1 block text-xs text-zinc-400">scoring model</span>
+              <Select
+                className="w-44"
+                value={modelScore}
+                onChange={(e) => setModelScore(e.target.value)}
+              >
+                {MODEL_OPTIONS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className="text-sm text-zinc-700">
+              <span className="mb-1 block text-xs text-zinc-400">tailoring model</span>
+              <Select
+                className="w-44"
+                value={modelTailor}
+                onChange={(e) => setModelTailor(e.target.value)}
+              >
+                {MODEL_OPTIONS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </Select>
+            </label>
             <Button onClick={() => void saveSchedule()}>
               <AlarmClock className="h-4 w-4" /> Save
             </Button>
           </div>
           {schedMsg && <p className="text-sm text-emerald-600">{schedMsg}</p>}
           <p className="text-xs text-zinc-400">
-            Caps bound the LLM spend per run. To run unattended without keeping a terminal open,
-            install the launchd service — see “Run as a background service” in the README.
+            Caps bound the LLM spend per run; the models set the cost/quality tradeoff (Haiku
+            cheapest, Opus best). Scoring runs on every discovered job, so a cheaper model there
+            saves the most; tailoring writes your résumé + cover letter, where quality matters more.
+            To run unattended without keeping a terminal open, install the launchd service — see
+            “Run as a background service” in the README.
           </p>
         </CardBody>
       </Card>

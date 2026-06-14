@@ -179,7 +179,7 @@ def adhoc(
         client = llm.get_client(db)
         meta = llm.parse_call(
             client,
-            model=scoring.MODEL_SCORE,
+            model=llm.model_for(profile.settings_json, "scoring", scoring.MODEL_SCORE_DEFAULT),
             system=(
                 "Extract the posting metadata from this pasted job description. "
                 "Salary as annual integers only when explicitly stated."

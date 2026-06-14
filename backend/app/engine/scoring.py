@@ -15,7 +15,7 @@ from .. import llm, models
 from ..ingest.service import latest_profile_row
 from ..prefs import JobPreferences
 
-MODEL_SCORE = "claude-opus-4-8"
+MODEL_SCORE_DEFAULT = "claude-haiku-4-5"  # user-overridable per profile (settings.models.scoring)
 SCORE_CAP_DEFAULT = 80
 JD_TRUNCATE = 12000
 CONCURRENCY = 4
@@ -123,12 +123,12 @@ class _AbortScoring(Exception):
 
 
 def _score_one(
-    client: anthropic.Anthropic, system: str, job: models.Job
+    client: anthropic.Anthropic, system: str, job: models.Job, model: str
 ) -> tuple[str, ScoreVerdict | Exception]:
     try:
         verdict = llm.parse_call(
             client,
-            model=MODEL_SCORE,
+            model=model,
             system=system,
             content=_job_block(job),
             schema=ScoreVerdict,
@@ -160,9 +160,11 @@ def score_single(db, profile_id: str, job_id: str) -> None:
     profile_row = latest_profile_row(db, profile_id)
     if prefs_row is None or profile_row is None:
         raise RuntimeError("Needs both a master profile and preferences.")
+    profile = db.get(models.Profile, profile_id)
+    model = llm.model_for(profile.settings_json if profile else None, "scoring", MODEL_SCORE_DEFAULT)
     client = llm.get_client(db)
     system = _build_system(profile_row.body_json, JobPreferences(**prefs_row.structured_json))
-    _, result = _score_one(client, system, job)
+    _, result = _score_one(client, system, job, model)
     if isinstance(result, Exception):
         raise result
     job.score = max(0, min(100, int(result.fit_score)))
@@ -193,6 +195,7 @@ def score_new(db, profile_id: str) -> tuple[dict, list[dict]]:
 
     profile = db.get(models.Profile, profile_id)
     cap = int(((profile.settings_json or {}).get("caps") or {}).get("score_per_run", SCORE_CAP_DEFAULT))
+    model = llm.model_for(profile.settings_json, "scoring", MODEL_SCORE_DEFAULT)
     jobs = (
         db.query(models.Job)
         .filter(models.Job.profile_id == profile_id, models.Job.status == "discovered")
@@ -209,12 +212,12 @@ def score_new(db, profile_id: str) -> tuple[dict, list[dict]]:
     results: dict[str, ScoreVerdict | Exception] = {}
     try:
         # First call alone writes the prompt cache; the rest fan out and read it.
-        first_id, first_result = _score_one(client, system, jobs[0])
+        first_id, first_result = _score_one(client, system, jobs[0], model)
         results[first_id] = first_result
         if len(jobs) > 1:
             with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
                 for job_id, result in pool.map(
-                    lambda j: _score_one(client, system, j), jobs[1:]
+                    lambda j: _score_one(client, system, j, model), jobs[1:]
                 ):
                     results[job_id] = result
     except _AbortScoring as exc:
@@ -251,5 +254,6 @@ def score_new(db, profile_id: str) -> tuple[dict, list[dict]]:
         "avg_score": round(score_sum / scored, 1) if scored else None,
         "remaining_unscored": max(0, len(jobs) - scored - failed),
         "cap": cap,
+        "model": model,
     }
     return stats, errors

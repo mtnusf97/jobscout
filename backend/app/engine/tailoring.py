@@ -16,7 +16,7 @@ from ..ingest.service import latest_profile_row
 from ..prefs import JobPreferences
 from . import render
 
-MODEL_TAILOR = "claude-opus-4-8"
+MODEL_TAILOR_DEFAULT = "claude-sonnet-4-6"  # user-overridable per profile (settings.models.tailoring)
 TAILOR_CAP_DEFAULT = 5
 JD_TRUNCATE = 14000
 
@@ -168,7 +168,7 @@ def _job_block(job: models.Job, notes: str) -> str:
     return "\n".join(parts)
 
 
-def _audit(client, profile_body: dict[str, Any], result: TailorResult) -> AuditResult:
+def _audit(client, profile_body: dict[str, Any], result: TailorResult, model: str) -> AuditResult:
     content = (
         "[MASTER PROFILE]\n"
         + json.dumps(profile_body, ensure_ascii=False)
@@ -177,7 +177,7 @@ def _audit(client, profile_body: dict[str, Any], result: TailorResult) -> AuditR
     )
     return llm.parse_call(
         client,
-        model=MODEL_TAILOR,
+        model=model,
         system=AUDIT_RULES,
         content=content,
         schema=AuditResult,
@@ -235,17 +235,17 @@ def latest_packet(db, job_id: str) -> Optional[models.Packet]:
 
 
 def tailor_job(db, job: models.Job, profile_body: dict[str, Any], prefs: JobPreferences,
-               notes: str = "") -> models.Packet:
+               notes: str = "", model: str = MODEL_TAILOR_DEFAULT) -> models.Packet:
     """Full chain for one job: tailor → audit → revise-once-if-flagged → render → save."""
     client = llm.get_client(db)
     system = _tailor_system(profile_body, prefs)
     content = _job_block(job, notes)
 
     result = llm.parse_call(
-        client, model=MODEL_TAILOR, system=system, content=content,
+        client, model=model, system=system, content=content,
         schema=TailorResult, thinking=True, max_tokens=10000, cache_system=True,
     )
-    audit = _audit(client, profile_body, result)
+    audit = _audit(client, profile_body, result, model)
 
     if not audit.passed:
         revise_content = (
@@ -258,10 +258,10 @@ def tailor_job(db, job: models.Job, profile_body: dict[str, Any], prefs: JobPref
             + REVISE_RULES
         )
         result = llm.parse_call(
-            client, model=MODEL_TAILOR, system=system, content=revise_content,
+            client, model=model, system=system, content=revise_content,
             schema=TailorResult, thinking=True, max_tokens=10000, cache_system=True,
         )
-        audit = _audit(client, profile_body, result)
+        audit = _audit(client, profile_body, result, model)
 
     previous = latest_packet(db, job.id)
     version = (previous.version + 1) if previous else 1
@@ -299,6 +299,7 @@ def tailor_new(db, profile_id: str) -> tuple[dict, list[dict]]:
 
     profile = db.get(models.Profile, profile_id)
     cap = int(((profile.settings_json or {}).get("caps") or {}).get("tailor_per_run", TAILOR_CAP_DEFAULT))
+    model = llm.model_for(profile.settings_json, "tailoring", MODEL_TAILOR_DEFAULT)
     jobs = (
         db.query(models.Job)
         .filter(models.Job.profile_id == profile_id, models.Job.status == "shortlisted")
@@ -312,7 +313,7 @@ def tailor_new(db, profile_id: str) -> tuple[dict, list[dict]]:
     tailored = flagged = failed = letters = 0
     for job in jobs:
         try:
-            packet = tailor_job(db, job, profile_body, prefs)
+            packet = tailor_job(db, job, profile_body, prefs, model=model)
             tailored += 1
             if packet.status == "audit_flagged":
                 flagged += 1
@@ -329,6 +330,7 @@ def tailor_new(db, profile_id: str) -> tuple[dict, list[dict]]:
         "audit_flagged": flagged,
         "failed": failed,
         "cap": cap,
+        "model": model,
     }, errors
 
 
@@ -346,8 +348,10 @@ def tailor_single(profile_id: str, job_id: str, notes: str = "") -> None:
             job.status = "scored" if job.score is not None else "discovered"
             db.commit()
             return
+        profile = db.get(models.Profile, profile_id)
+        model = llm.model_for(profile.settings_json if profile else None, "tailoring", MODEL_TAILOR_DEFAULT)
         try:
-            tailor_job(db, job, profile_body, prefs, notes=notes)
+            tailor_job(db, job, profile_body, prefs, notes=notes, model=model)
         except Exception as exc:  # noqa: BLE001
             db.rollback()
             job = db.get(models.Job, job_id)
