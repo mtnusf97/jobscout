@@ -182,7 +182,7 @@ def _audit(client, profile_body: dict[str, Any], result: TailorResult, model: st
         content=content,
         schema=AuditResult,
         thinking=True,
-        max_tokens=4000,
+        max_tokens=12000,
     )
 
 
@@ -243,7 +243,7 @@ def tailor_job(db, job: models.Job, profile_body: dict[str, Any], prefs: JobPref
 
     result = llm.parse_call(
         client, model=model, system=system, content=content,
-        schema=TailorResult, thinking=True, max_tokens=10000, cache_system=True,
+        schema=TailorResult, thinking=True, max_tokens=32000, cache_system=True,
     )
     audit = _audit(client, profile_body, result, model)
 
@@ -259,7 +259,7 @@ def tailor_job(db, job: models.Job, profile_body: dict[str, Any], prefs: JobPref
         )
         result = llm.parse_call(
             client, model=model, system=system, content=revise_content,
-            schema=TailorResult, thinking=True, max_tokens=10000, cache_system=True,
+            schema=TailorResult, thinking=True, max_tokens=32000, cache_system=True,
         )
         audit = _audit(client, profile_body, result, model)
 

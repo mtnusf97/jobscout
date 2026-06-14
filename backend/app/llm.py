@@ -115,6 +115,17 @@ def _response_text(response: Any) -> str:
     return "\n".join(block.text for block in response.content if block.type == "text")
 
 
+def _create_message(client: anthropic.Anthropic, **kwargs: Any) -> Any:
+    """Run one Messages request via streaming and return the final Message.
+
+    Streaming sidesteps the SDK's non-streaming HTTP-timeout guard, so callers can give a
+    large max_tokens budget (adaptive thinking + a long structured output) without the
+    response getting truncated mid-JSON ("EOF while parsing") or the request timing out.
+    """
+    with client.messages.stream(**kwargs) as stream:
+        return stream.get_final_message()
+
+
 def _freeform_parse(
     client: anthropic.Anthropic,
     *,
@@ -143,7 +154,8 @@ def _freeform_parse(
     kwargs: dict[str, Any] = {}
     if thinking:
         kwargs["thinking"] = {"type": "adaptive"}
-    response = client.messages.create(
+    response = _create_message(
+        client,
         model=model,
         max_tokens=max_tokens,
         system=system_param,
@@ -154,7 +166,8 @@ def _freeform_parse(
     try:
         return schema.model_validate_json(text)
     except Exception as first_err:  # noqa: BLE001 - feed validation errors back once
-        repair = client.messages.create(
+        repair = _create_message(
+            client,
             model=model,
             max_tokens=max_tokens,
             system=system_param,
