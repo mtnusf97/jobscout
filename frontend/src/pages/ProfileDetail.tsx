@@ -41,6 +41,29 @@ const MODEL_OPTIONS = [
 const DEFAULT_MODEL_SCORE = "claude-haiku-4-5";
 const DEFAULT_MODEL_TAILOR = "claude-sonnet-4-6";
 
+function ModelSelect({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="text-sm text-zinc-700">
+      <span className="mb-1 block text-xs text-zinc-400">{label}</span>
+      <Select className="w-44" value={value} onChange={(e) => onChange(e.target.value)}>
+        {MODEL_OPTIONS.map((m) => (
+          <option key={m.value} value={m.value}>
+            {m.label}
+          </option>
+        ))}
+      </Select>
+    </label>
+  );
+}
+
 function SourceChips({
   ids,
   builtFrom,
@@ -208,6 +231,17 @@ export default function ProfileDetail() {
       }),
     );
     setSchedMsg("Saved.");
+  }
+
+  // Persist model choices on their own (used by the dropdowns in the Discovery card,
+  // which have no Save button — a run reads these from the saved profile settings).
+  async function persistModels(scoring: string, tailoring: string) {
+    if (!profile) return;
+    await act(() =>
+      api.patch(`/profiles/${pid}`, {
+        settings: { ...profile.settings, models: { scoring, tailoring } },
+      }),
+    );
   }
 
   const docsBusy = docs.some((d) => d.status === "uploaded" || d.status === "processing");
@@ -795,6 +829,28 @@ export default function ProfileDetail() {
           </div>
         </CardHeader>
         <CardBody className="space-y-3">
+          <div className="flex flex-wrap items-end gap-4 border-b border-zinc-100 pb-3">
+            <ModelSelect
+              label="scoring model"
+              value={modelScore}
+              onChange={(v) => {
+                setModelScore(v);
+                void persistModels(v, modelTailor);
+              }}
+            />
+            <ModelSelect
+              label="tailoring model"
+              value={modelTailor}
+              onChange={(v) => {
+                setModelTailor(v);
+                void persistModels(modelScore, v);
+              }}
+            />
+            <p className="max-w-xs text-xs text-zinc-400">
+              Models used when you run the pipeline (scoring on every job, tailoring on
+              shortlisted). Saved instantly; also editable in the schedule card below.
+            </p>
+          </div>
           {!prefs && (
             <p className="text-sm text-zinc-400">
               Set your preferences (card 4) first — discovery executes them.
@@ -1052,34 +1108,8 @@ export default function ProfileDetail() {
                 onChange={(e) => setCapTailor(Number(e.target.value) || 5)}
               />
             </label>
-            <label className="text-sm text-zinc-700">
-              <span className="mb-1 block text-xs text-zinc-400">scoring model</span>
-              <Select
-                className="w-44"
-                value={modelScore}
-                onChange={(e) => setModelScore(e.target.value)}
-              >
-                {MODEL_OPTIONS.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </Select>
-            </label>
-            <label className="text-sm text-zinc-700">
-              <span className="mb-1 block text-xs text-zinc-400">tailoring model</span>
-              <Select
-                className="w-44"
-                value={modelTailor}
-                onChange={(e) => setModelTailor(e.target.value)}
-              >
-                {MODEL_OPTIONS.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </Select>
-            </label>
+            <ModelSelect label="scoring model" value={modelScore} onChange={setModelScore} />
+            <ModelSelect label="tailoring model" value={modelTailor} onChange={setModelTailor} />
             <Button onClick={() => void saveSchedule()}>
               <AlarmClock className="h-4 w-4" /> Save
             </Button>
