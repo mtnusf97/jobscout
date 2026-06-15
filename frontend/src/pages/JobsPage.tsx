@@ -133,7 +133,7 @@ export default function JobsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-end justify-between">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <Link
             to={`/profiles/${pid}`}
@@ -148,7 +148,7 @@ export default function JobsPage() {
             Ranked by fit against your preferences. Tailored packets arrive in Phase 5.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link to={`/profiles/${pid}/adhoc`}>
             <Button variant="outline">
               <ClipboardPaste className="h-4 w-4" /> Paste a job

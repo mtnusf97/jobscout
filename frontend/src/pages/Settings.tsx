@@ -97,7 +97,7 @@ function CredentialRow({
       <div className="mt-3">
         {editing ? (
           <form
-            className="flex max-w-xl gap-2"
+            className="flex max-w-xl flex-wrap gap-2"
             onSubmit={(e) => {
               e.preventDefault();
               void save();
@@ -122,7 +122,7 @@ function CredentialRow({
             )}
           </form>
         ) : (
-          <div className="flex max-w-xl items-center gap-2">
+          <div className="flex max-w-xl flex-wrap items-center gap-2">
             <code className="rounded bg-zinc-100 px-2 py-1 text-xs text-zinc-600">
               {state.masked_value}
             </code>

@@ -319,7 +319,7 @@ export default function ProfileDetail() {
           void onFiles(e.dataTransfer.files);
         }}
       >
-        <CardHeader className="flex items-center justify-between">
+        <CardHeader className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle>1 · Documents</CardTitle>
           <Button onClick={() => fileInput.current?.click()} disabled={uploading}>
             {uploading ? <Spinner /> : <Upload className="h-4 w-4" />} Add files
@@ -378,7 +378,7 @@ export default function ProfileDetail() {
 
       {/* 2 — build */}
       <Card>
-        <CardHeader className="flex items-center justify-between">
+        <CardHeader className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle>2 · Master profile</CardTitle>
           <div className="flex items-center gap-2">
             {mp && (
@@ -584,7 +584,7 @@ export default function ProfileDetail() {
 
       {/* 3 — interview */}
       <Card>
-        <CardHeader className="flex items-center justify-between">
+        <CardHeader className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle>3 · Gap interview</CardTitle>
           {answeredQs.length > 0 && (
             <Button
@@ -665,7 +665,7 @@ export default function ProfileDetail() {
 
       {/* 4 — target job preferences */}
       <Card>
-        <CardHeader className="flex items-center justify-between">
+        <CardHeader className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle>4 · What you're looking for</CardTitle>
           {prefs && (
             <span className="text-xs text-zinc-400">
@@ -810,7 +810,7 @@ export default function ProfileDetail() {
 
       {/* 5 — discovery */}
       <Card>
-        <CardHeader className="flex items-center justify-between">
+        <CardHeader className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle>5 · Discovery</CardTitle>
           <div className="flex items-center gap-2">
             <Link
@@ -927,7 +927,7 @@ export default function ProfileDetail() {
 
       {/* 6 — telegram delivery */}
       <Card>
-        <CardHeader className="flex items-center justify-between">
+        <CardHeader className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle>6 · Telegram delivery</CardTitle>
           {tg?.connected && <Badge tone="green">connected ✓</Badge>}
           {tgPending && <Badge tone="amber">waiting for /start</Badge>}
@@ -1054,7 +1054,7 @@ export default function ProfileDetail() {
 
       {/* 7 — schedule & limits */}
       <Card>
-        <CardHeader className="flex items-center justify-between">
+        <CardHeader className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle>7 · Schedule & limits</CardTitle>
           {schedEnabled ? (
             <Badge tone="green">daily at {schedTime}</Badge>

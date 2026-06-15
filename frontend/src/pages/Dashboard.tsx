@@ -72,7 +72,7 @@ export default function Dashboard() {
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <CardBody>
             <div className="text-xs font-medium uppercase tracking-wide text-zinc-400">Backend</div>
