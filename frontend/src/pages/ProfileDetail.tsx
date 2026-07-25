@@ -824,10 +824,41 @@ export default function ProfileDetail() {
         </CardBody>
       </Card>
 
-      {/* 5 — discovery */}
+      {/* 5 — résumé design */}
       <Card>
         <CardHeader className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle>5 · Discovery</CardTitle>
+          <CardTitle>5 · Résumé design</CardTitle>
+          {design.trim() && <Badge tone="green">custom</Badge>}
+        </CardHeader>
+        <CardBody className="space-y-3">
+          <p className="text-sm text-zinc-500">
+            Free-form instructions for how your résumé should be shaped — length, formatting,
+            bullet style, tone. These get added to the tailoring prompt and take precedence over
+            the defaults where they conflict (the agent still never fabricates anything).
+          </p>
+          <textarea
+            className="h-40 w-full rounded-md border border-zinc-300 p-3 text-sm placeholder:text-zinc-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            placeholder={
+              "e.g.\n• Keep it to a single page.\n• Two full pages is fine — use the space.\n• Every bullet must fit on one line; no wrapping.\n• Lead each bullet with a metric.\n• At most 3 bullets per role."
+            }
+            maxLength={2000}
+            value={design}
+            onChange={(e) => setDesign(e.target.value)}
+          />
+          <div className="flex items-center gap-3">
+            <Button onClick={() => void saveDesign()}>
+              <Save className="h-4 w-4" /> Save
+            </Button>
+            {designMsg && <span className="text-sm text-emerald-600">{designMsg}</span>}
+            <span className="ml-auto text-xs text-zinc-400">{design.length}/2000</span>
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* 6 — discovery */}
+      <Card>
+        <CardHeader className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle>6 · Discovery</CardTitle>
           <div className="flex items-center gap-2">
             <Link
               to={`/profiles/${pid}/jobs`}
@@ -941,10 +972,10 @@ export default function ProfileDetail() {
         </CardBody>
       </Card>
 
-      {/* 6 — telegram delivery */}
+      {/* 7 — telegram delivery */}
       <Card>
         <CardHeader className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle>6 · Telegram delivery</CardTitle>
+          <CardTitle>7 · Telegram delivery</CardTitle>
           {tg?.connected && <Badge tone="green">connected ✓</Badge>}
           {tgPending && <Badge tone="amber">waiting for /start</Badge>}
         </CardHeader>
@@ -1068,10 +1099,10 @@ export default function ProfileDetail() {
         </CardBody>
       </Card>
 
-      {/* 7 — schedule & limits */}
+      {/* 8 — schedule & limits */}
       <Card>
         <CardHeader className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle>7 · Schedule & limits</CardTitle>
+          <CardTitle>8 · Schedule & limits</CardTitle>
           {schedEnabled ? (
             <Badge tone="green">daily at {schedTime}</Badge>
           ) : (
@@ -1138,37 +1169,6 @@ export default function ProfileDetail() {
             To run unattended without keeping a terminal open, install the launchd service — see
             “Run as a background service” in the README.
           </p>
-        </CardBody>
-      </Card>
-
-      {/* 8 — résumé design */}
-      <Card>
-        <CardHeader className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle>8 · Résumé design</CardTitle>
-          {design.trim() && <Badge tone="green">custom</Badge>}
-        </CardHeader>
-        <CardBody className="space-y-3">
-          <p className="text-sm text-zinc-500">
-            Free-form instructions for how your résumé should be shaped — length, formatting,
-            bullet style, tone. These get added to the tailoring prompt and take precedence over
-            the defaults where they conflict (the agent still never fabricates anything).
-          </p>
-          <textarea
-            className="h-40 w-full rounded-md border border-zinc-300 p-3 text-sm placeholder:text-zinc-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-            placeholder={
-              "e.g.\n• Keep it to a single page.\n• Two full pages is fine — use the space.\n• Every bullet must fit on one line; no wrapping.\n• Lead each bullet with a metric.\n• At most 3 bullets per role."
-            }
-            maxLength={2000}
-            value={design}
-            onChange={(e) => setDesign(e.target.value)}
-          />
-          <div className="flex items-center gap-3">
-            <Button onClick={() => void saveDesign()}>
-              <Save className="h-4 w-4" /> Save
-            </Button>
-            {designMsg && <span className="text-sm text-emerald-600">{designMsg}</span>}
-            <span className="ml-auto text-xs text-zinc-400">{design.length}/2000</span>
-          </div>
         </CardBody>
       </Card>
     </div>
