@@ -8,6 +8,7 @@ import {
   MessageCircleQuestion,
   Radar,
   RotateCcw,
+  Save,
   Send,
   Sparkles,
   Trash2,
@@ -36,7 +37,8 @@ import {
 const MODEL_OPTIONS = [
   { value: "claude-haiku-4-5", label: "Haiku 4.5 — cheapest" },
   { value: "claude-sonnet-4-6", label: "Sonnet 4.6 — balanced" },
-  { value: "claude-opus-4-8", label: "Opus 4.8 — best quality" },
+  { value: "claude-opus-4-8", label: "Opus 4.8 — high quality" },
+  { value: "claude-opus-5", label: "Opus 5 — most capable (newest)" },
 ] as const;
 const DEFAULT_MODEL_SCORE = "claude-haiku-4-5";
 const DEFAULT_MODEL_TAILOR = "claude-sonnet-4-6";
@@ -148,6 +150,8 @@ export default function ProfileDetail() {
   const [capTailor, setCapTailor] = useState(5);
   const [modelScore, setModelScore] = useState<string>(DEFAULT_MODEL_SCORE);
   const [modelTailor, setModelTailor] = useState<string>(DEFAULT_MODEL_TAILOR);
+  const [design, setDesign] = useState("");
+  const [designMsg, setDesignMsg] = useState<string | null>(null);
   const [schedLoaded, setSchedLoaded] = useState(false);
   const [schedMsg, setSchedMsg] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -213,6 +217,7 @@ export default function ProfileDetail() {
     setCapTailor(caps.tailor_per_run ?? 5);
     setModelScore(modelsSel.scoring ?? DEFAULT_MODEL_SCORE);
     setModelTailor(modelsSel.tailoring ?? DEFAULT_MODEL_TAILOR);
+    setDesign((profile.settings.resume_design as string) ?? "");
     setSchedLoaded(true);
   }, [profile, schedLoaded]);
 
@@ -242,6 +247,17 @@ export default function ProfileDetail() {
         settings: { ...profile.settings, models: { scoring, tailoring } },
       }),
     );
+  }
+
+  async function saveDesign() {
+    if (!profile) return;
+    setDesignMsg(null);
+    await act(() =>
+      api.patch(`/profiles/${pid}`, {
+        settings: { ...profile.settings, resume_design: design },
+      }),
+    );
+    setDesignMsg("Saved.");
   }
 
   const docsBusy = docs.some((d) => d.status === "uploaded" || d.status === "processing");
@@ -1122,6 +1138,37 @@ export default function ProfileDetail() {
             To run unattended without keeping a terminal open, install the launchd service — see
             “Run as a background service” in the README.
           </p>
+        </CardBody>
+      </Card>
+
+      {/* 8 — résumé design */}
+      <Card>
+        <CardHeader className="flex flex-wrap items-center justify-between gap-2">
+          <CardTitle>8 · Résumé design</CardTitle>
+          {design.trim() && <Badge tone="green">custom</Badge>}
+        </CardHeader>
+        <CardBody className="space-y-3">
+          <p className="text-sm text-zinc-500">
+            Free-form instructions for how your résumé should be shaped — length, formatting,
+            bullet style, tone. These get added to the tailoring prompt and take precedence over
+            the defaults where they conflict (the agent still never fabricates anything).
+          </p>
+          <textarea
+            className="h-40 w-full rounded-md border border-zinc-300 p-3 text-sm placeholder:text-zinc-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            placeholder={
+              "e.g.\n• Keep it to a single page.\n• Two full pages is fine — use the space.\n• Every bullet must fit on one line; no wrapping.\n• Lead each bullet with a metric.\n• At most 3 bullets per role."
+            }
+            maxLength={2000}
+            value={design}
+            onChange={(e) => setDesign(e.target.value)}
+          />
+          <div className="flex items-center gap-3">
+            <Button onClick={() => void saveDesign()}>
+              <Save className="h-4 w-4" /> Save
+            </Button>
+            {designMsg && <span className="text-sm text-emerald-600">{designMsg}</span>}
+            <span className="ml-auto text-xs text-zinc-400">{design.length}/2000</span>
+          </div>
         </CardBody>
       </Card>
     </div>

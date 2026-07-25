@@ -144,8 +144,8 @@ PROFILE above. Keep everything else identical. Return the full corrected object.
 # --- chain ------------------------------------------------------------------------
 
 
-def _tailor_system(profile_body: dict[str, Any], prefs: JobPreferences) -> str:
-    return (
+def _tailor_system(profile_body: dict[str, Any], prefs: JobPreferences, design: str = "") -> str:
+    system = (
         "[MASTER PROFILE — the only source of truth]\n"
         + json.dumps(profile_body, ensure_ascii=False)
         + "\n\n[CANDIDATE PREFERENCES]\n"
@@ -153,6 +153,16 @@ def _tailor_system(profile_body: dict[str, Any], prefs: JobPreferences) -> str:
         + "\n\n"
         + TAILOR_RULES
     )
+    if design and design.strip():
+        system += (
+            "\n\n[CANDIDATE'S RÉSUMÉ DESIGN INSTRUCTIONS]\n"
+            "The candidate specified how they want the résumé shaped (length, formatting, bullet "
+            "style, etc.). Follow these exactly. Where they conflict with the general resume rules "
+            "above — page count, number of bullets, bullet length — THESE INSTRUCTIONS WIN. Never "
+            "violate the truthfulness constraint to satisfy them.\n"
+            + design.strip()[:2000]
+        )
+    return system
 
 
 def _job_block(job: models.Job, notes: str) -> str:
@@ -235,10 +245,10 @@ def latest_packet(db, job_id: str) -> Optional[models.Packet]:
 
 
 def tailor_job(db, job: models.Job, profile_body: dict[str, Any], prefs: JobPreferences,
-               notes: str = "", model: str = MODEL_TAILOR_DEFAULT) -> models.Packet:
+               notes: str = "", model: str = MODEL_TAILOR_DEFAULT, design: str = "") -> models.Packet:
     """Full chain for one job: tailor → audit → revise-once-if-flagged → render → save."""
     client = llm.get_client(db)
-    system = _tailor_system(profile_body, prefs)
+    system = _tailor_system(profile_body, prefs, design)
     content = _job_block(job, notes)
 
     result = llm.parse_call(
@@ -300,6 +310,7 @@ def tailor_new(db, profile_id: str) -> tuple[dict, list[dict]]:
     profile = db.get(models.Profile, profile_id)
     cap = int(((profile.settings_json or {}).get("caps") or {}).get("tailor_per_run", TAILOR_CAP_DEFAULT))
     model = llm.model_for(profile.settings_json, "tailoring", MODEL_TAILOR_DEFAULT)
+    design = (profile.settings_json or {}).get("resume_design") or ""
     jobs = (
         db.query(models.Job)
         .filter(models.Job.profile_id == profile_id, models.Job.status == "shortlisted")
@@ -313,7 +324,7 @@ def tailor_new(db, profile_id: str) -> tuple[dict, list[dict]]:
     tailored = flagged = failed = letters = 0
     for job in jobs:
         try:
-            packet = tailor_job(db, job, profile_body, prefs, model=model)
+            packet = tailor_job(db, job, profile_body, prefs, model=model, design=design)
             tailored += 1
             if packet.status == "audit_flagged":
                 flagged += 1
@@ -349,9 +360,11 @@ def tailor_single(profile_id: str, job_id: str, notes: str = "") -> None:
             db.commit()
             return
         profile = db.get(models.Profile, profile_id)
-        model = llm.model_for(profile.settings_json if profile else None, "tailoring", MODEL_TAILOR_DEFAULT)
+        settings = profile.settings_json if profile else None
+        model = llm.model_for(settings, "tailoring", MODEL_TAILOR_DEFAULT)
+        design = (settings or {}).get("resume_design") or ""
         try:
-            tailor_job(db, job, profile_body, prefs, notes=notes, model=model)
+            tailor_job(db, job, profile_body, prefs, notes=notes, model=model, design=design)
         except Exception as exc:  # noqa: BLE001
             db.rollback()
             job = db.get(models.Job, job_id)
