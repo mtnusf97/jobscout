@@ -17,7 +17,7 @@ MODEL_REFINE = "claude-opus-4-8"
 # Models the user may pick per pipeline stage in the UI (stored in
 # profile.settings_json["models"]). Cheapest → best; anything else falls back to
 # the stage default. Keep in sync with the dropdown in the frontend.
-ALLOWED_MODELS = ("claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-8", "claude-opus-5")
+ALLOWED_MODELS = ("claude-haiku-4-5", "claude-sonnet-5", "claude-opus-4-8", "claude-opus-5")
 
 
 def model_for(settings: Optional[dict[str, Any]], stage: str, default: str) -> str:

@@ -16,7 +16,7 @@ from ..ingest.service import latest_profile_row
 from ..prefs import JobPreferences
 from . import render
 
-MODEL_TAILOR_DEFAULT = "claude-sonnet-4-6"  # user-overridable per profile (settings.models.tailoring)
+MODEL_TAILOR_DEFAULT = "claude-sonnet-5"  # user-overridable per profile (settings.models.tailoring)
 TAILOR_CAP_DEFAULT = 5
 JD_TRUNCATE = 14000
 

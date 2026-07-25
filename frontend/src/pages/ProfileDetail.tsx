@@ -36,12 +36,12 @@ import {
 // Keep in sync with ALLOWED_MODELS in backend/app/llm.py
 const MODEL_OPTIONS = [
   { value: "claude-haiku-4-5", label: "Haiku 4.5 — cheapest" },
-  { value: "claude-sonnet-4-6", label: "Sonnet 4.6 — balanced" },
+  { value: "claude-sonnet-5", label: "Sonnet 5 — balanced (newest)" },
   { value: "claude-opus-4-8", label: "Opus 4.8 — high quality" },
   { value: "claude-opus-5", label: "Opus 5 — most capable (newest)" },
 ] as const;
 const DEFAULT_MODEL_SCORE = "claude-haiku-4-5";
-const DEFAULT_MODEL_TAILOR = "claude-sonnet-4-6";
+const DEFAULT_MODEL_TAILOR = "claude-sonnet-5";
 
 function ModelSelect({
   label,
