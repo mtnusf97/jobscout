@@ -20,19 +20,28 @@ def _typst_bin() -> str:
     return binary
 
 
-_PRELUDE = """\
-#set page(paper: "us-letter", margin: (x: 1.5cm, y: 1.3cm))
-#set text(font: ("Helvetica", "Arial", "Liberation Sans"), size: 9.8pt, fill: rgb("#1a1a1a"))
-#set par(justify: false, leading: 0.52em)
-#show link: it => text(fill: rgb("#1a4f8f"))[#it]
-#let sect(title) = {
-  v(7pt)
-  text(size: 10pt, weight: "bold", tracking: 0.07em)[#upper(title)]
-  v(-5pt)
-  line(length: 100%, stroke: 0.6pt + rgb("#b0b0b0"))
-  v(0pt)
-}
-"""
+# Font-fit ladder: shrink the résumé a notch at a time (floor ~8.6pt, still readable) to
+# pull a slightly-too-long résumé onto the target page count without calling the LLM.
+_SCALES = (1.0, 0.96, 0.92, 0.88)
+
+# Invisible marker Typst reports the final page count for (read back by page_count()).
+_PAGECOUNT_META = "\n#context [#metadata(counter(page).final().first()) <pagecount>]\n"
+
+
+def _prelude(scale: float = 1.0) -> str:
+    return (
+        '#set page(paper: "us-letter", margin: (x: 1.5cm, y: 1.3cm))\n'
+        f'#set text(font: ("Helvetica", "Arial", "Liberation Sans"), size: {round(9.8 * scale, 2)}pt, fill: rgb("#1a1a1a"))\n'
+        "#set par(justify: false, leading: 0.52em)\n"
+        '#show link: it => text(fill: rgb("#1a4f8f"))[#it]\n'
+        "#let sect(title) = {\n"
+        f"  v({round(7 * scale, 2)}pt)\n"
+        f'  text(size: {round(10 * scale, 2)}pt, weight: "bold", tracking: 0.07em)[#upper(title)]\n'
+        "  v(-5pt)\n"
+        '  line(length: 100%, stroke: 0.6pt + rgb("#b0b0b0"))\n'
+        "  v(0pt)\n"
+        "}\n"
+    )
 
 
 def _contact(profile_body: dict[str, Any]) -> dict[str, str]:
@@ -61,13 +70,13 @@ def _header(contact: dict[str, str]) -> str:
     )
 
 
-def resume_typ(profile_body: dict[str, Any], tailored: dict[str, Any]) -> str:
+def resume_typ(profile_body: dict[str, Any], tailored: dict[str, Any], scale: float = 1.0) -> str:
     contact = _contact(profile_body)
-    parts = [_PRELUDE, _header(contact)]
+    parts = [_prelude(scale), _header(contact)]
 
     if tailored.get("headline"):
         parts.append(
-            f'#align(center)[#text(size: 10pt, weight: "medium", fill: rgb("#333333"))'
+            f'#align(center)[#text(size: {round(10 * scale, 2)}pt, weight: "medium", fill: rgb("#333333"))'
             f"[{esc(tailored['headline'])}]]\n"
         )
     if tailored.get("summary"):
@@ -93,7 +102,7 @@ def resume_typ(profile_body: dict[str, Any], tailored: dict[str, Any]) -> str:
             )
             for bullet in role.get("bullets") or []:
                 parts.append(f"- {esc(bullet.get('text'))}\n")
-            parts.append("#v(3pt)\n")
+            parts.append(f"#v({round(3 * scale, 2)}pt)\n")
 
     projects = tailored.get("projects") or []
     if projects:
@@ -104,7 +113,12 @@ def resume_typ(profile_body: dict[str, Any], tailored: dict[str, Any]) -> str:
             for bullet in project.get("bullets") or []:
                 parts.append(f"- {esc(bullet.get('text'))}\n")
 
-    education = profile_body.get("education") or []
+    # Education from the TAILORED result when the model set it (so design instructions like
+    # "leave off my bachelor" take effect); fall back to the master profile only when the
+    # model left the field untouched (None), never when it deliberately returned [].
+    education = tailored.get("education")
+    if education is None:
+        education = profile_body.get("education") or []
     if education:
         parts.append('#sect("Education")\n')
         for ed in education:
@@ -116,14 +130,58 @@ def resume_typ(profile_body: dict[str, Any], tailored: dict[str, Any]) -> str:
                 f"[*{esc(degree)}* — {esc(ed.get('institution'))}{gpa}], "
                 f'[#text(size: 8.8pt, fill: rgb("#555555"))[{esc(dates)}]])\n'
             )
+    parts.append(_PAGECOUNT_META)
     return "".join(parts)
+
+
+def page_count(typ_source: str) -> int:
+    """Total rendered page count via a Typst metadata query. Returns 0 if unmeasurable."""
+    import tempfile
+
+    with tempfile.NamedTemporaryFile("w", suffix=".typ", delete=False, encoding="utf-8") as fh:
+        fh.write(typ_source)
+        path = Path(fh.name)
+    try:
+        result = subprocess.run(
+            [_typst_bin(), "query", str(path), "<pagecount>", "--field", "value", "--one"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        out = result.stdout.strip()
+        return int(out) if result.returncode == 0 and out.isdigit() else 0
+    except (ValueError, OSError, subprocess.SubprocessError):
+        return 0
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def fit_resume(
+    profile_body: dict[str, Any], tailored: dict[str, Any], target: Optional[int]
+) -> tuple[str, int]:
+    """Return (typst_source, page_count), shrinking the font a notch at a time to reach
+    `target` pages when possible — no LLM involved. target falsy → no fitting (scale 1.0)."""
+    if not target:
+        src = resume_typ(profile_body, tailored, 1.0)
+        return src, page_count(src)
+    best: Optional[tuple[str, int]] = None
+    for scale in _SCALES:
+        src = resume_typ(profile_body, tailored, scale)
+        pages = page_count(src)
+        if pages == 0:  # measurement failed — use as-is, don't fight it
+            return src, 0
+        if pages <= target:
+            return src, pages
+        if best is None or pages < best[1]:
+            best = (src, pages)
+    return best if best is not None else (resume_typ(profile_body, tailored, 1.0), 0)
 
 
 def letter_typ(profile_body: dict[str, Any], job: dict[str, str], body_text: str) -> str:
     contact = _contact(profile_body)
     paragraphs = [p.strip() for p in (body_text or "").split("\n\n") if p.strip()]
     parts = [
-        _PRELUDE,
+        _prelude(),
         _header(contact),
         "#v(14pt)\n",
         f"*{esc(job.get('company'))}* — re: {esc(job.get('title'))}\n#v(8pt)\n",

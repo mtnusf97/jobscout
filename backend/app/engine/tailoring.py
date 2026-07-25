@@ -49,12 +49,25 @@ class TProject(BaseModel):
     bullets: list[TBullet] = []
 
 
+class TEducation(BaseModel):
+    institution: str
+    degree: str
+    field: Optional[str] = None
+    start: Optional[str] = None
+    end: Optional[str] = None
+    gpa: Optional[str] = None
+
+
 class TailoredResume(BaseModel):
     headline: str
     summary: str
     skills: list[TSkillGroup] = []
     roles: list[TRole] = []
     projects: list[TProject] = []
+    # None = model didn't touch it → renderer falls back to the master profile's education.
+    # A list (even empty) = the model's explicit selection, so design instructions like
+    # "leave off my bachelor" are honored.
+    education: Optional[list[TEducation]] = None
     ats_keywords_covered: list[str] = []
     ats_keywords_missing: list[str] = []
 
@@ -98,15 +111,20 @@ HARD CONSTRAINT — truthfulness:
   from. A separate auditor will reject unsupported claims.
 
 Resume rules:
-- Fits one page: at most 4 roles (most relevant first within reverse-chronological
-  order), 2-4 bullets each, at most 3 projects with 1-2 bullets. Drop what doesn't
-  serve THIS job.
+- Length: most relevant roles first (reverse-chronological), 2-4 bullets each, at most
+  3 projects with 1-2 bullets; drop what doesn't serve THIS job. Aim for the target
+  length given below — prioritize relevance over padding (a separate step enforces the
+  exact page count).
 - Lead bullets with impact + metrics. Weave the JD's actual keywords in truthfully —
   list what you covered in ats_keywords_covered and what the candidate genuinely lacks
   in ats_keywords_missing (never fake the missing ones).
 - headline: one line positioning the candidate for THIS role.
 - summary: 2-3 sentences targeted at this job's top requirements.
 - skills: 3-5 groups, items reordered so JD-relevant skills come first; only real ones.
+- education: ALWAYS populate this with the candidate's REAL education entries (most
+  relevant / highest degree first). Omit an entry only when it is clearly irrelevant to
+  this job or when the candidate's design instructions say to drop it (e.g. "leave off my
+  bachelor"). Never invent, alter, or upgrade a degree, field, institution, or date.
 
 Cover letter rules:
 - include=true when the posting asks for one OR a specific, credible hook exists
@@ -144,7 +162,9 @@ PROFILE above. Keep everything else identical. Return the full corrected object.
 # --- chain ------------------------------------------------------------------------
 
 
-def _tailor_system(profile_body: dict[str, Any], prefs: JobPreferences, design: str = "") -> str:
+def _tailor_system(
+    profile_body: dict[str, Any], prefs: JobPreferences, design: str = "", pages: Optional[int] = None
+) -> str:
     system = (
         "[MASTER PROFILE — the only source of truth]\n"
         + json.dumps(profile_body, ensure_ascii=False)
@@ -153,6 +173,15 @@ def _tailor_system(profile_body: dict[str, Any], prefs: JobPreferences, design: 
         + "\n\n"
         + TAILOR_RULES
     )
+    if pages:
+        system += (
+            f"\n\n[TARGET LENGTH]\nThe résumé must fit {pages} page(s). "
+            + (
+                "Keep it to one tight, high-signal page — select ruthlessly."
+                if pages == 1
+                else "You have up to two pages — include relevant depth, but no filler."
+            )
+        )
     if design and design.strip():
         system += (
             "\n\n[CANDIDATE'S RÉSUMÉ DESIGN INSTRUCTIONS]\n"
@@ -198,7 +227,7 @@ def _audit(client, profile_body: dict[str, Any], result: TailorResult, model: st
 
 def _render_packet(
     db, job: models.Job, profile_body: dict[str, Any], result: TailorResult, audit: AuditResult,
-    version: int, notes: str,
+    version: int, notes: str, resume_typ_src: str,
 ) -> models.Packet:
     out_dir = (
         settings.files_dir / job.profile_id / "packets" / job.id / f"v{version}"
@@ -206,7 +235,7 @@ def _render_packet(
     name = render.safe_filename(profile_body.get("full_name") or "Candidate")
     company = render.safe_filename(job.company)
     resume_pdf = out_dir / f"{name}_{company}_Resume.pdf"
-    render.compile_pdf(render.resume_typ(profile_body, result.resume.model_dump()), resume_pdf)
+    render.compile_pdf(resume_typ_src, resume_pdf)
 
     letter_pdf_path: Optional[str] = None
     if result.cover_letter.include and result.cover_letter.body_text.strip():
@@ -244,11 +273,41 @@ def latest_packet(db, job_id: str) -> Optional[models.Packet]:
     )
 
 
+def _target_pages(settings: Optional[dict]) -> Optional[int]:
+    """Résumé page target from settings.resume_pages: 1 or 2, else None (no limit).
+    Absent → 1 (matches the built-in one-page résumé convention)."""
+    val = (settings or {}).get("resume_pages", 1)
+    return val if val in (1, 2) else None
+
+
+def _trim_to_fit(client, system: str, result: TailorResult, model: str,
+                 current_pages: int, target: int) -> Optional[TailoredResume]:
+    """Last resort when font-shrink can't reach the target: one LLM pass that only REMOVES
+    content. Returns the trimmed résumé, or None on failure (caller keeps the original)."""
+    content = (
+        "[CURRENT TAILORED RÉSUMÉ]\n"
+        + json.dumps(result.resume.model_dump(), ensure_ascii=False)
+        + f"\n\nThis résumé rendered to {current_pages} pages, but it MUST fit {target} page(s) "
+        "and shrinking the font was not enough. Return the résumé object (same schema) trimmed "
+        "to fit: drop the least job-relevant bullets and projects, and a whole role if needed; "
+        "shorten wordy bullets. REMOVE content only — never add, invent, or restore anything. "
+        "Keep the strongest material and leave the education selection unchanged."
+    )
+    try:
+        return llm.parse_call(
+            client, model=model, system=system, content=content,
+            schema=TailoredResume, thinking=True, max_tokens=16000, cache_system=True,
+        )
+    except Exception:  # noqa: BLE001 - fitting is best-effort; keep the untrimmed résumé
+        return None
+
+
 def tailor_job(db, job: models.Job, profile_body: dict[str, Any], prefs: JobPreferences,
-               notes: str = "", model: str = MODEL_TAILOR_DEFAULT, design: str = "") -> models.Packet:
-    """Full chain for one job: tailor → audit → revise-once-if-flagged → render → save."""
+               notes: str = "", model: str = MODEL_TAILOR_DEFAULT, design: str = "",
+               pages: Optional[int] = None) -> models.Packet:
+    """Full chain for one job: tailor → audit → revise-if-flagged → fit-to-page → render → save."""
     client = llm.get_client(db)
-    system = _tailor_system(profile_body, prefs, design)
+    system = _tailor_system(profile_body, prefs, design, pages)
     content = _job_block(job, notes)
 
     result = llm.parse_call(
@@ -273,9 +332,18 @@ def tailor_job(db, job: models.Job, profile_body: dict[str, Any], prefs: JobPref
         )
         audit = _audit(client, profile_body, result, model)
 
+    # Fit to the target page count: cheap font-shrink first; one LLM content-trim only if
+    # even the smallest readable font can't get there.
+    resume_src, page_n = render.fit_resume(profile_body, result.resume.model_dump(), pages)
+    if pages and page_n > pages:
+        trimmed = _trim_to_fit(client, system, result, model, page_n, pages)
+        if trimmed is not None:
+            result.resume = trimmed
+            resume_src, page_n = render.fit_resume(profile_body, trimmed.model_dump(), pages)
+
     previous = latest_packet(db, job.id)
     version = (previous.version + 1) if previous else 1
-    packet = _render_packet(db, job, profile_body, result, audit, version, notes)
+    packet = _render_packet(db, job, profile_body, result, audit, version, notes, resume_src)
     job.status = "tailored"
     db.commit()
     try:
@@ -311,6 +379,7 @@ def tailor_new(db, profile_id: str) -> tuple[dict, list[dict]]:
     cap = int(((profile.settings_json or {}).get("caps") or {}).get("tailor_per_run", TAILOR_CAP_DEFAULT))
     model = llm.model_for(profile.settings_json, "tailoring", MODEL_TAILOR_DEFAULT)
     design = (profile.settings_json or {}).get("resume_design") or ""
+    pages = _target_pages(profile.settings_json)
     jobs = (
         db.query(models.Job)
         .filter(models.Job.profile_id == profile_id, models.Job.status == "shortlisted")
@@ -324,7 +393,7 @@ def tailor_new(db, profile_id: str) -> tuple[dict, list[dict]]:
     tailored = flagged = failed = letters = 0
     for job in jobs:
         try:
-            packet = tailor_job(db, job, profile_body, prefs, model=model, design=design)
+            packet = tailor_job(db, job, profile_body, prefs, model=model, design=design, pages=pages)
             tailored += 1
             if packet.status == "audit_flagged":
                 flagged += 1
@@ -363,8 +432,9 @@ def tailor_single(profile_id: str, job_id: str, notes: str = "") -> None:
         settings = profile.settings_json if profile else None
         model = llm.model_for(settings, "tailoring", MODEL_TAILOR_DEFAULT)
         design = (settings or {}).get("resume_design") or ""
+        pages = _target_pages(settings)
         try:
-            tailor_job(db, job, profile_body, prefs, notes=notes, model=model, design=design)
+            tailor_job(db, job, profile_body, prefs, notes=notes, model=model, design=design, pages=pages)
         except Exception as exc:  # noqa: BLE001
             db.rollback()
             job = db.get(models.Job, job_id)

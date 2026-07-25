@@ -152,6 +152,7 @@ export default function ProfileDetail() {
   const [modelTailor, setModelTailor] = useState<string>(DEFAULT_MODEL_TAILOR);
   const [design, setDesign] = useState("");
   const [designMsg, setDesignMsg] = useState<string | null>(null);
+  const [pages, setPages] = useState(1); // 1 | 2 | 0 (no limit)
   const [schedLoaded, setSchedLoaded] = useState(false);
   const [schedMsg, setSchedMsg] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -218,6 +219,7 @@ export default function ProfileDetail() {
     setModelScore(modelsSel.scoring ?? DEFAULT_MODEL_SCORE);
     setModelTailor(modelsSel.tailoring ?? DEFAULT_MODEL_TAILOR);
     setDesign((profile.settings.resume_design as string) ?? "");
+    setPages((profile.settings.resume_pages as number) ?? 1);
     setSchedLoaded(true);
   }, [profile, schedLoaded]);
 
@@ -254,7 +256,7 @@ export default function ProfileDetail() {
     setDesignMsg(null);
     await act(() =>
       api.patch(`/profiles/${pid}`, {
-        settings: { ...profile.settings, resume_design: design },
+        settings: { ...profile.settings, resume_design: design, resume_pages: pages },
       }),
     );
     setDesignMsg("Saved.");
@@ -832,10 +834,27 @@ export default function ProfileDetail() {
         </CardHeader>
         <CardBody className="space-y-3">
           <p className="text-sm text-zinc-500">
-            Free-form instructions for how your résumé should be shaped — length, formatting,
-            bullet style, tone. These get added to the tailoring prompt and take precedence over
-            the defaults where they conflict (the agent still never fabricates anything).
+            Shape how your résumé is written — bullet style, tone, what to emphasize or leave off
+            (e.g. “leave off my bachelor”). Set the length with the buttons; the app enforces it by
+            tightening the layout, and only re-asks the AI to trim if it truly can’t fit. The agent
+            never fabricates anything.
           </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs uppercase tracking-wide text-zinc-400">Target length</span>
+            {[
+              { v: 1, l: "1 page" },
+              { v: 2, l: "2 pages" },
+              { v: 0, l: "No limit" },
+            ].map((o) => (
+              <Button
+                key={o.v}
+                variant={pages === o.v ? "primary" : "outline"}
+                onClick={() => setPages(o.v)}
+              >
+                {o.l}
+              </Button>
+            ))}
+          </div>
           <textarea
             className="h-40 w-full rounded-md border border-zinc-300 p-3 text-sm placeholder:text-zinc-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
             placeholder={
