@@ -70,6 +70,19 @@ def _header(contact: dict[str, str]) -> str:
     )
 
 
+# Reorderable résumé sections. The model can permute these via `section_order` (driven by
+# the design box, e.g. "keep skills at the end"); anything it omits keeps the default order.
+_DEFAULT_SECTION_ORDER = ("summary", "skills", "experience", "projects", "education")
+_SECTION_ALIASES = {
+    "roles": "experience",
+    "work": "experience",
+    "work experience": "experience",
+    "publications": "projects",
+    "projects & publications": "projects",
+    "selected projects & publications": "projects",
+}
+
+
 def resume_typ(profile_body: dict[str, Any], tailored: dict[str, Any], scale: float = 1.0) -> str:
     contact = _contact(profile_body)
     parts = [_prelude(scale), _header(contact)]
@@ -79,39 +92,45 @@ def resume_typ(profile_body: dict[str, Any], tailored: dict[str, Any], scale: fl
             f'#align(center)[#text(size: {round(10 * scale, 2)}pt, weight: "medium", fill: rgb("#333333"))'
             f"[{esc(tailored['headline'])}]]\n"
         )
+
+    sections: dict[str, str] = {}
+
     if tailored.get("summary"):
-        parts.append('#sect("Summary")\n' + esc(tailored["summary"]) + "\n")
+        sections["summary"] = '#sect("Summary")\n' + esc(tailored["summary"]) + "\n"
 
     skills = tailored.get("skills") or []
     if skills:
-        parts.append('#sect("Skills")\n')
+        buf = ['#sect("Skills")\n']
         for group in skills:
-            parts.append(f"*{esc(group.get('name'))}:* {esc(', '.join(group.get('items') or []))} \\\n")
+            buf.append(f"*{esc(group.get('name'))}:* {esc(', '.join(group.get('items') or []))} \\\n")
+        sections["skills"] = "".join(buf)
 
     roles = tailored.get("roles") or []
     if roles:
-        parts.append('#sect("Experience")\n')
+        buf = ['#sect("Experience")\n']
         for role in roles:
             dates = " – ".join(d for d in [role.get("start"), role.get("end")] if d)
             where = " · ".join(x for x in [role.get("location")] if x)
             right = esc(" · ".join(x for x in [where, dates] if x))
-            parts.append(
+            buf.append(
                 "#grid(columns: (1fr, auto), gutter: 6pt, "
                 f"[*{esc(role.get('title'))}* — {esc(role.get('company'))}], "
                 f'[#text(size: 8.8pt, fill: rgb("#555555"))[{right}]])\n'
             )
             for bullet in role.get("bullets") or []:
-                parts.append(f"- {esc(bullet.get('text'))}\n")
-            parts.append(f"#v({round(3 * scale, 2)}pt)\n")
+                buf.append(f"- {esc(bullet.get('text'))}\n")
+            buf.append(f"#v({round(3 * scale, 2)}pt)\n")
+        sections["experience"] = "".join(buf)
 
     projects = tailored.get("projects") or []
     if projects:
-        parts.append('#sect("Selected Projects & Publications")\n')
+        buf = ['#sect("Selected Projects & Publications")\n']
         for project in projects:
             meta = f' #text(size: 8.8pt, fill: rgb("#555555"))[· {esc(project.get("meta"))}]' if project.get("meta") else ""
-            parts.append(f"*{esc(project.get('name'))}*{meta} \\\n")
+            buf.append(f"*{esc(project.get('name'))}*{meta} \\\n")
             for bullet in project.get("bullets") or []:
-                parts.append(f"- {esc(bullet.get('text'))}\n")
+                buf.append(f"- {esc(bullet.get('text'))}\n")
+        sections["projects"] = "".join(buf)
 
     # Education from the TAILORED result when the model set it (so design instructions like
     # "leave off my bachelor" take effect); fall back to the master profile only when the
@@ -120,16 +139,30 @@ def resume_typ(profile_body: dict[str, Any], tailored: dict[str, Any], scale: fl
     if education is None:
         education = profile_body.get("education") or []
     if education:
-        parts.append('#sect("Education")\n')
+        buf = ['#sect("Education")\n']
         for ed in education:
             dates = " – ".join(d for d in [ed.get("start"), ed.get("end")] if d)
             degree = ", ".join(x for x in [ed.get("degree"), ed.get("field")] if x)
             gpa = f" · GPA {esc(ed.get('gpa'))}" if ed.get("gpa") else ""
-            parts.append(
+            buf.append(
                 "#grid(columns: (1fr, auto), gutter: 6pt, "
                 f"[*{esc(degree)}* — {esc(ed.get('institution'))}{gpa}], "
                 f'[#text(size: 8.8pt, fill: rgb("#555555"))[{esc(dates)}]])\n'
             )
+        sections["education"] = "".join(buf)
+
+    # Emit in the model's requested order (design-driven), then anything it didn't list
+    # in the default order. Unknown/duplicate keys are ignored.
+    requested = [
+        _SECTION_ALIASES.get(k, k)
+        for k in (str(s).strip().lower() for s in (tailored.get("section_order") or []))
+    ]
+    emitted: set[str] = set()
+    for key in [*requested, *_DEFAULT_SECTION_ORDER]:
+        if key in sections and key not in emitted:
+            parts.append(sections[key])
+            emitted.add(key)
+
     parts.append(_PAGECOUNT_META)
     return "".join(parts)
 

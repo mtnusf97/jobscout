@@ -68,6 +68,8 @@ class TailoredResume(BaseModel):
     # A list (even empty) = the model's explicit selection, so design instructions like
     # "leave off my bachelor" are honored.
     education: Optional[list[TEducation]] = None
+    # Section keys in the desired display order (design-driven, e.g. "skills last"). None = default.
+    section_order: Optional[list[str]] = None
     ats_keywords_covered: list[str] = []
     ats_keywords_missing: list[str] = []
 
@@ -125,6 +127,11 @@ Resume rules:
   relevant / highest degree first). Omit an entry only when it is clearly irrelevant to
   this job or when the candidate's design instructions say to drop it (e.g. "leave off my
   bachelor"). Never invent, alter, or upgrade a degree, field, institution, or date.
+- section_order: the order the résumé's sections should appear, as a list from
+  ["summary", "skills", "experience", "projects", "education"] (list only the sections you
+  actually produce). The default is that order; REORDER it to honor the candidate's design
+  instructions (e.g. "keep the skills section at the end" → put "skills" last). Leave null
+  to use the default order.
 
 Cover letter rules:
 - include=true when the posting asks for one OR a specific, credible hook exists
@@ -291,7 +298,7 @@ def _trim_to_fit(client, system: str, result: TailorResult, model: str,
         "and shrinking the font was not enough. Return the résumé object (same schema) trimmed "
         "to fit: drop the least job-relevant bullets and projects, and a whole role if needed; "
         "shorten wordy bullets. REMOVE content only — never add, invent, or restore anything. "
-        "Keep the strongest material and leave the education selection unchanged."
+        "Keep the strongest material and leave the education selection and section_order unchanged."
     )
     try:
         return llm.parse_call(
@@ -338,6 +345,11 @@ def tailor_job(db, job: models.Job, profile_body: dict[str, Any], prefs: JobPref
     if pages and page_n > pages:
         trimmed = _trim_to_fit(client, system, result, model, page_n, pages)
         if trimmed is not None:
+            # a trim must not resurrect dropped education or reset a custom section order
+            if trimmed.education is None:
+                trimmed.education = result.resume.education
+            if trimmed.section_order is None:
+                trimmed.section_order = result.resume.section_order
             result.resume = trimmed
             resume_src, page_n = render.fit_resume(profile_body, trimmed.model_dump(), pages)
 
